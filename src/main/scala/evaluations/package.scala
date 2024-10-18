@@ -89,12 +89,19 @@ package object types {
   sealed trait OneHand extends KeyString
   sealed trait Actionable extends KeyString
   sealed trait StraightOrdered extends KeyString
+  sealed trait MultiChunk extends KeyString
+
   type BothHandActionable = Actionable
   type OneHandActionable = OneHand with Actionable
-  case class HandAction(val keys: String) extends Actionable {
+
+  case class Chunk(val keys: String) extends OneHand with Actionable {
+    def toHandAction: HandAction = HandAction(keys)
+    def toOneHandAction: OneHandAction = OneHandAction(keys)
+  }
+  case class HandAction(val keys: String) extends Actionable with MultiChunk {
     def toOneHand: OneHandAction = OneHandAction(keys)
   }
-  case class OneHandAction(val keys: String) extends OneHand with Actionable
+  case class OneHandAction(val keys: String) extends OneHand with Actionable with MultiChunk
 
 
   val keyToFingerAndHand: Map[Char, (Hand, Finger)] = Map(
