@@ -10,212 +10,139 @@ object Evaluator {
 
   def evaluate(keys: String): Double = keys match {
     case "" => 0.0
-    case keys =>
-      val partitionedKeys = partitionKeysByHand(keys)
-      val listOfActionKeys = keysToListOfActionkeys(partitionedKeys)
-      val (listOfLeftActionKeys, listOfRightActionKeys) =
-        divideListOfActionKeysByHand(listOfActionKeys)
-      val leftInterstrokes = getInterstrokes(listOfLeftActionKeys)
-      val rightInterstrokes = getInterstrokes(listOfRightActionKeys)
-      (leftInterstrokes ++ rightInterstrokes).map(evaluateInterstroke(_)).sum
+    case _ =>
+      val chunks = partitionedKeysToChunks(partitionKeysByHand(keys))
+      chunksToListOfActionChunks(chunks)._2
   }
 
   def partitionKeysByHand(keys: String): List[(String, Hand)] = {
     def rec(
-      keys: List[Char], oneHandKeys: String, lastHand: Option[Hand],
-      partitionedKeys: List[(String, Hand)]
-    ): List[(String, Hand)] = (keys, lastHand) match {
-      case (Nil, None) => partitionedKeys.reverse
-      case (Nil, Some(hand)) => ((oneHandKeys, hand)::partitionedKeys).reverse
-      case (k::ks, None) => rec(ks, k.toString, Some(keyToHand(k)), Nil)
-      case (k::ks, Some(hand)) if hand == keyToHand(k) =>
-        rec(ks, oneHandKeys + k, Some(hand), partitionedKeys)
-      case (k::ks, Some(hand)) =>
-        rec(ks, k.toString, Some(keyToHand(k)), (oneHandKeys, hand)::partitionedKeys)
+      keys: List[Char], oneHandKeys: String, lastHand: Hand, partitionedKeys: List[(String, Hand)]
+    ): List[(String, Hand)] = keys match {
+      case Nil => ((oneHandKeys, lastHand)::partitionedKeys).reverse
+      case k::ks if lastHand == keyToHand(k) => rec(ks, oneHandKeys + k, lastHand, partitionedKeys)
+      case k::ks => rec(ks, k.toString, keyToHand(k), (oneHandKeys, lastHand)::partitionedKeys)
     }
-    rec(keys.toList, "", None, Nil)
+    keys.toList match {
+      case Nil => Nil
+      case k::ks => rec(ks, k.toString, keyToHand(k), Nil)
+    }
   }
 
-  def keysToListOfActionkeys(
-    partitionedKeys: List[(String, Hand)]
-  ): List[(OneHandAction, Hand)] =
-    partitionedKeys.map { case (keys, hand) =>
-      keysToChunks(keys, Nil).map(_ -> hand)
-    } .flatten
-
-  def divideListOfActionKeysByHand(
-    listOfActionKeys: List[(OneHandAction, Hand)]
-  ): (List[Option[OneHandAction]], List[Option[OneHandAction]]) = {
-    val leftList = listOfActionKeys.map(_ match {
-      case (keys, LeftHand) => Some(keys)
-      case (_, RightHand) => None
-    })
-    val rightList = listOfActionKeys.map(_ match {
-      case (keys, RightHand) => Some(keys)
-      case (_, LeftHand) => None
-    })
-    (leftList, rightList)
+  def partitionedKeysToChunks(partitionedKeys: List[(String, Hand)]): List[HandSpecifiedChunk] = {
+    var totalChunks = List[HandSpecifiedChunk]()
+    partitionedKeys.foreach { case (keys, hand) =>
+      val chunks = keysToChunks(keys, hand, Nil)
+      totalChunks ++= chunks
+    }
+    totalChunks
   }
 
-  def getInterstrokes(
-    listOfActionKeys: List[Option[OneHandAction]]
-  ): List[InterStrokeProperty] = {
-    def rec(
-      listOfActionKeys: List[Option[OneHandAction]],
-      interStrokeProperties: List[InterStrokeProperty]
-    ): List[InterStrokeProperty] = listOfActionKeys match {
-      case Nil => interStrokeProperties.reverse
-      case Some(x)::Some(y)::xs =>
-        val interStrokeProperty = getInterStrokeProperty(x, y, AA)
-        rec(Some(y)::xs, interStrokeProperty::interStrokeProperties)
-      case Some(x)::None::Some(y)::xs =>
-        val interStrokeProperty = getInterStrokeProperty(x, y, ABA)
-        rec(Some(y)::xs, interStrokeProperty::interStrokeProperties)
-      case Some(x)::None::None::Some(y)::xs =>
-        val interStrokeProperty = getInterStrokeProperty(x, y, ABBA)
-        rec(Some(y)::xs, interStrokeProperty::interStrokeProperties)
-      case Some(x)::None::None::None::Some(y)::xs =>
-        val interStrokeProperty = getInterStrokeProperty(x, y, ABBBA)
-        rec(Some(y)::xs, interStrokeProperty::interStrokeProperties)
-      case Some(x)::None::None::None::None::xs =>
-        rec(Some(x)::None::None::None::xs, interStrokeProperties)
-      case x::xs => rec(xs, interStrokeProperties)
-    }
-    rec(listOfActionKeys, Nil)
-  }
-
-  def getInterStrokeProperty(
-    keys1: OneHandAction, keys2: OneHandAction, betweens: HandBsBetweenHandAs
-  ): InterStrokeProperty =
-    getChunkDifficulty(keys1, keys2) match {
-      case property: Joinable => InterJoinable(property, betweens)
-      case NonJoinableStroke =>
-        val removed = removeNonChunkableCombinationKeys(keys1, keys2).toOneHand
-        lazy val nonChunkability = getChunkableTotalStrokeProperty(removed, keys2)
-        (removed, nonChunkability, keys1.keys.length, keys2.keys.length) match {
-          case (OneHandAction(""), p, len1, len2) if len1 <= len2 =>
-            InterNonJoinable(p, betweens)
-          case (OneHandAction(""), _, _, _) => InterJustNonJoinable(betweens)
-          case (_, p, _, _) => InterNonJoinable(p, betweens)
-        }
-    }
-
-  def evaluateInterstroke(interchunkability: InterStrokeProperty): Double =
-    interchunkability match {
-      case InterJoinable(HardFingerOrderStroke, ABBBA) => 0.96
-      case InterNonJoinable(HardFingerOrderStroke, ABBBA) => 0.96
-      case InterJoinable(HardStroke, ABBBA) => 0.96
-      case InterNonJoinable(HardStroke, ABBBA) => 0.96
-      case InterJustNonJoinable(ABBBA) => 0.96
-      case InterNonJoinable(EasyStroke, ABBBA) => 0.95
-      case InterJoinable(EasyStroke, ABBBA) => 0.95
-
-      case InterJoinable(HardFingerOrderStroke, ABBA) => 0.96
-      case InterNonJoinable(HardFingerOrderStroke, ABBA) => 0.96
-      case InterJoinable(HardStroke, ABBA) => 0.96
-      case InterNonJoinable(HardStroke, ABBA) => 0.96
-      case InterJustNonJoinable(ABBA) => 0.96
-      case InterNonJoinable(EasyStroke, ABBA) => 0.95
-      case InterJoinable(EasyStroke, ABBA) => 0.94
-
-      case InterJoinable(HardFingerOrderStroke, _) => 1.0
-      case InterNonJoinable(HardFingerOrderStroke, _) => 0.99
-      case InterJoinable(HardStroke, _) => 0.98
-      case InterNonJoinable(HardStroke, _) => 0.97
-      case InterJustNonJoinable(_) => 0.96
-      case InterNonJoinable(EasyStroke, _) => 0.95
-      case InterJoinable(EasyStroke, _) => 0.0
-    }
-
-  def keysToChunks(keys: String, chunks: List[OneHandAction]): List[OneHandAction] = (keys) match {
+  def keysToChunks(keys: String, hand: Hand, chunks: List[HandSpecifiedChunk]): List[HandSpecifiedChunk] = keys match {
     case "" => chunks.reverse
     case _ =>
-      val chunkCandidates: List[String] = (1 to 4).toList.reverse.map((keys.take(_)))
-      val chunk =
-        OneHandAction(chunkCandidates.filter(keys =>
-          getChunkDifficulty(OneHandAction(keys)) == EasyStroke).head)
-      keysToChunks(keys.drop(chunk.keys.length), chunk::chunks)
-  }
-
-  def removeNonChunkableCombinationKeys(
-    actionKeys: Actionable, chunk: OneHandAction
-  ): HandAction =
-    HandAction(actionKeys.keys.filter { k1 =>
-      val combinations = chunk.keys.map(k2 => k1 -> k2)
-      combinations.forall { case (k1, k2) =>
-        (keyToHand(k1), keyToHand(k2)) match {
-          case (LeftHand, RightHand) => true
-          case (RightHand, LeftHand) => true
-          case _ => allChunks.get(k1.toString + k2.toString).nonEmpty
-        }
+      def rec(takeNumbers: List[Int], keys: String): (String, Int) = takeNumbers match {
+        case Nil => throw new RuntimeException("single keys must be defined as ArpeggioStroke")
+        case x::xs =>
+          val takenKeys = keys.take(x)
+          if (getTotalStrokeProperty(Chunk(takenKeys)) == ArpeggioStroke)
+            takenKeys -> x
+          else
+            rec(xs, keys)
       }
-    })
-
-  def getChunkableTotalStrokeProperty(
-    keys: OneHandActionable
-  ): TotalStrokeProperty with Joinable =
-    chunkDifficultyToChunkability(getChunkDifficulty(keys))
-
-  def getChunkableTotalStrokeProperty(
-    keys1: OneHandActionable, keys2: OneHand
-  ): TotalStrokeProperty with Joinable =
-    chunkDifficultyToChunkability(getChunkDifficulty(keys1, keys2))
-
-  def chunkDifficultyToChunkability(
-    property: TotalStrokeProperty
-  ): TotalStrokeProperty with Joinable = property match {
-    case property: Joinable => property
-    case property => HardStroke
+      val (takenKeys, takeNumber) = rec(List(4, 3, 2, 1), keys)
+      val chunk = hand match {
+        case LeftHand => LeftChunk(takenKeys)
+        case RightHand => RightChunk(takenKeys)
+      }
+      keysToChunks(keys.drop(takeNumber), hand, chunk::chunks)
   }
 
-  def getChunkDifficulty(keys: OneHand): TotalStrokeProperty =
-    getChunkDifficulty(OneHandAction(""), keys)
+  def chunksToListOfActionChunks(
+    chunks: List[HandSpecifiedChunk], reversed: Boolean = false
+  ): (List[List[HandSpecifiedChunk]], Double) = {
+    def rec(
+      chunks: List[HandSpecifiedChunk],
+      leftActionKeyString: OneHandAction, rightActionKeyString: OneHandAction,
+      currentActionChunks: List[HandSpecifiedChunk], listOfActionChunks: List[List[HandSpecifiedChunk]],
+      score: Double
+    ): (List[List[HandSpecifiedChunk]], Double) = chunks match {
+      case Nil => (currentActionChunks::listOfActionChunks) -> score
+      case x::xs =>
+        val (currentActionKeyString, otherActionKeyString) = reverseHands(leftActionKeyString, rightActionKeyString, x)
 
-  val totalStrokePropertyCache: MutMap[(String, String), TotalStrokeProperty] = MutMap()
-  def getChunkDifficulty(keys1: OneHandActionable, keys2: OneHand): TotalStrokeProperty =
-    totalStrokePropertyCache.get(keys1.keys -> keys2.keys) match {
-      case Some(p) => p
-      case None =>
-        val allKeys = OneHandAction(keys1 + keys2)
-
-        lazy val productDifficulty = getProductChunkDifficulty(allKeys)
-        lazy val orderDifficulty = chunkableOrderOrNot(keys1, keys2)
-        lazy val handShapeDifficulty = getHandShapeDifficulty(allKeys)
-        val totalStrokeProperty =
-          (productDifficulty, handShapeDifficulty, orderDifficulty) match {
-            case (NonJoinable, _, _) => NonJoinableStroke
-            case (_, NonJoinable, _) => NonJoinableStroke
-            case (_, _, NonJoinable) => NonJoinableStroke
-            case (HardJoinable, _, _) => HardStroke
-            case (_, HardJoinable, _) => HardStroke
-            case (EasilyJoinable, EasilyJoinable, HardJoinable) => HardFingerOrderStroke
-            case (_, _, HardJoinable) => HardStroke
-            case (EasilyJoinable, EasilyJoinable, EasilyJoinable) => EasyStroke
+        val totalStrokeProperty = getTotalStrokeProperty(currentActionKeyString, x)
+        val (newCurrentActionKeyString, newOtherActionKeyString, newCurrentActionChunks, newListOfActionChunks, penalty) =
+          totalStrokeProperty match {
+            case ArpeggioStroke =>
+              (currentActionKeyString.join(x), otherActionKeyString, x::currentActionChunks, listOfActionChunks, 0.0)
+            case _ => (x.toOneHandAction, OneHandAction(""), x::Nil, currentActionChunks::listOfActionChunks, 1.0)
           }
-        totalStrokePropertyCache(keys1.keys -> keys2.keys) = totalStrokeProperty
-        totalStrokeProperty
-    }
 
-  def getHandShapeDifficulty(keyString: OneHandActionable): StrokeProperty =
-    allHandShapes.get(getHandShape(keyString)) match {
-      case Some(EasilyJoinable) => EasilyJoinable
-      case Some(HardJoinable) => HardJoinable
-      case Some(NonJoinable) => NonJoinable
-      case None => NonJoinable
-    }
+        val nearArpeggioPenalty = totalStrokeProperty  match {
+          case ArpeggioStroke => 0.0
+          case SubArpeggioStroke => 0.0
+          case _: HardChunkable => 0.001
+          case _: NonChunkable => 0.001
+        }
+        val newScore = score + penalty + nearArpeggioPenalty
 
-  def getHandShape(keyString: OneHandActionable): HandShape = {
+        val (newLeftActionKeyString, newRightActionKeyString) = reverseHands(newCurrentActionKeyString, newOtherActionKeyString, x)
+        rec(xs, newLeftActionKeyString, newRightActionKeyString, newCurrentActionChunks, newListOfActionChunks, newScore)
+    }
+    chunks match {
+      case Nil => Nil -> 0.0
+      case xs =>
+        val (xss, score) = rec(xs, OneHandAction(""), OneHandAction(""), Nil, Nil, 0.0)
+        if (reversed) xss.map(_.reverse).reverse -> score else xss -> score
+    }
+  }
+
+  def reverseHands[T](oneHand: T, otherHand: T, chunk: HandSpecifiedChunk): (T, T) = chunk match {
+    case _: LeftChunk => oneHand -> otherHand
+    case _: RightChunk => otherHand -> oneHand
+  }
+
+  def getTotalStrokeProperty(keys: OneHandActionable): TotalStrokeProperty = getTotalStrokeProperty(OneHandAction(""), keys)
+
+  private val totalStrokePropertyCache: MutMap[(String, String), TotalStrokeProperty] = MutMap()
+  def getTotalStrokeProperty(keys1: OneHandActionable, keys2: OneHandActionable): TotalStrokeProperty = {
+    lazy val allKeys = OneHandKeyString(keys1 + keys2)
+    lazy val basicStrokeProperty = getBasicStrokeProperty(allKeys)
+    lazy val handShapeProperty = getHandShapeProperty(allKeys)
+    lazy val orderProperty = chunkableOrderOrNot(keys1, keys2)
+    lazy val totalStrokeProperty = (basicStrokeProperty, handShapeProperty, orderProperty) match {
+      case (BasicStrokeSameFinger(n), _, _) => NonChunkableSameFingerStroke(n)
+      case (BasicStrokeDifferentFinger(0), HandShapeEasilyChunkable, _) => SubArpeggioStroke
+      case (BasicStrokeDifferentFinger(n), _, _) => NonChunkableDifferentFingerStroke(n)
+      case (BasicStrokeEasilyChunkable, HandShapeEasilyChunkable, FingerOrderEasilyChunkable) => ArpeggioStroke
+      case (BasicStrokeEasilyChunkable, HandShapeEasilyChunkable, FingerOrderHardChunkable) => HardFingerOrderStroke
+      case (BasicStrokeEasilyChunkable, HandShapeHardChunkable, FingerOrderEasilyChunkable) => HardHandShapeStroke
+      case (BasicStrokeEasilyChunkable, HandShapeHardChunkable, FingerOrderHardChunkable) => HardArpeggioStroke
+    }
+    totalStrokePropertyCache.getOrElseUpdate(keys1.keys -> keys2.keys, totalStrokeProperty)
+  }
+
+  def getHandShapeProperty(keyString: OneHand): HandShapeProperty = {
+    val handShape = getHandShape(keyString)
+    allHandShapes.get(handShape) match {
+      case Some(handShapeProperty) => handShapeProperty
+      case None => HandShapeEasilyChunkable
+    }
+  }
+
+  def getHandShape(keyString: OneHand): HandShape = {
     val pairsOfFingerAndYAxis: List[(Finger, Int)] =
       keyString.keys.sortBy(keyAxes(_)._1).map(x => keyToFinger(x) -> keyAxes(x)._2).toList
-    val headFingerPositions = List(pairsOfFingerAndYAxis.head._1 -> SameHeight)
+    val headFingerPosition = List(pairsOfFingerAndYAxis.head._1 -> SameHeight)
     val tailFingerPositions = pairsOfFingerAndYAxis.tail match {
       case Nil => Nil
       case _ =>
-      pairsOfFingerAndYAxis.sliding(2).map {
-        case Seq((_, y1), (f2, y2)) => f2 -> getRelativeFingerHeight(y2, y1)
-      }
+        pairsOfFingerAndYAxis.sliding(2).map {
+          case Seq((_, y1), (f2, y2)) => f2 -> getRelativeFingerHeight(y2, y1)
+        }
     }
-    headFingerPositions ++ tailFingerPositions
+    headFingerPosition ++ tailFingerPositions
   }
 
   def getRelativeFingerHeight(y2: Int, y1: Int): RelativeFingerHeight =
@@ -226,9 +153,9 @@ object Evaluator {
     else
       LowerHeight
 
-  def chunkableOrderOrNot(keys1: OneHand, keys2: OneHand): StrokeProperty = {
-    val pastFingers = keys1.keys.map(keyToRealFinger(_)).toSet
-    val fingers = keys2.keys.map(keyToRealFinger(_)).toList
+  def chunkableOrderOrNot(keys1: OneHand, keys2: OneHand): FingerOrderProperty = {
+    val pastFingers = keys1.keys.map(keyToFinger(_)).toSet
+    val fingers = keys2.keys.map(keyToFinger(_)).toList
     val sameFingerRemoved = pastFingers.filter(!fingers.contains(_))
     def rec(fingers: List[Finger], fingerOrders: List[FingerOrder]): List[FingerOrder] =
       (fingers, fingerOrders) match {
@@ -239,35 +166,40 @@ object Evaluator {
           rec(restFingers, newFingerOrder::fingerOrders)
       }
     val result = rec(fingers, Nil).map(allFingerOrders.get(_))
-    if (result.contains(None))
-      NonJoinable
-    else if (result.contains(Some(HardJoinable)))
-      HardJoinable
+    if (result.contains(Some(FingerOrderHardChunkable)))
+      FingerOrderHardChunkable
     else
-      EasilyJoinable
+      FingerOrderEasilyChunkable
   }
 
-  def getProduct(oneHandKeyString: OneHand): List[OneHandAction] = {
-    def rec(keys: String, twoStrokes: List[OneHandAction]): List[OneHandAction] = (keys) match {
-      case "" => twoStrokes
-      case keys if keys.length == 1 => twoStrokes
+  def getProduct(oneHandKeyString: OneHand): List[BasicStroke] = {
+    def rec(keys: String, twoKeyStrokes: List[BasicStroke]): List[BasicStroke] = keys match {
+      case "" => twoKeyStrokes
+      case keys if keys.length == 1 => twoKeyStrokes
       case keys =>
         val (k1, restKeys) = (keys.head, keys.tail)
-        val newTwoStrokes =
-          twoStrokes ++
-          (for (k2 <- restKeys) yield OneHandAction(k1.toString + k2.toString)).toList
+        val newTwoStrokes = twoKeyStrokes ++ restKeys.toList.map(k2 => BasicStroke(k1.toString + k2.toString))
         rec(restKeys, newTwoStrokes)
     }
     rec(oneHandKeyString.keys, Nil)
   }
 
-  def getProductChunkDifficulty(keys: OneHandAction): StrokeProperty = {
-    val chunkDifficulties = getProduct(keys).map(unitKeyString => allStrokePatterns(unitKeyString.keys)._1)
-    if (chunkDifficulties.contains(NonJoinable))
-      NonJoinable
-    else if (chunkDifficulties.contains(HardJoinable))
-      HardJoinable
-    else
-      EasilyJoinable
+  def getBasicStrokeProperty(keys: OneHand): BasicStrokeProperty = {
+    val product = getProduct(keys)
+    val chunkabilities = product.map(basicStroke => allStrokePatterns(basicStroke.keys)._1)
+    val sameFingerProperty = chunkabilities.collect {
+      case x: BasicStrokeSameFinger => x
+    } .sortBy(-_.distance).headOption
+    val differentFingerProperty = chunkabilities.collect {
+      case x: BasicStrokeDifferentFinger => x
+    } .sortBy(-_.distance).headOption
+    sameFingerProperty -> differentFingerProperty match {
+      case (None, None) => BasicStrokeEasilyChunkable
+      case (Some(x), None) => x
+      case (None, Some(y)) => y
+      case (Some(BasicStrokeSameFinger(n)), Some(BasicStrokeDifferentFinger(m))) => BasicStrokeSameFinger(n max m)
+    }
   }
+
+  def clearCaches(): Unit = totalStrokePropertyCache.clear()
 }

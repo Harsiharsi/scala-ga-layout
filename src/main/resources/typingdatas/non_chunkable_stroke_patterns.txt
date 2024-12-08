@@ -1,0 +1,38 @@
+# total 28
+
+Pinky-Pinky
+StretchedRing-StretchedRing
+Ring-Ring
+Middle-Middle
+Index-Index
+StretchedIndex-StretchedIndex
+Ring-StretchedRing
+Index-StretchedIndex
+
+Pinky-StretchedRing Higher
+  0 => _
+  1 => 2
+  2 => 3
+  3 => 3
+Pinky-Ring Higher
+Pinky-Ring Lower
+Pinky-Middle Higher
+Pinky-Index Higher
+Pinky-StretchedIndex Higher
+
+StretchedRing-Middle Lower
+StretchedRing-Index Lower
+StretchedRing-StretchedIndex Lower
+
+Ring-Middle Higher
+Ring-Middle Lower
+Ring-Index Higher
+Ring-Index Lower
+Ring-StretchedIndex Higher
+Ring-StretchedIndex Lower
+
+Middle-Index Higher
+Middle-Index Lower
+Middle-StretchedIndex
+Middle-StretchedIndex Higher
+Middle-StretchedIndex Lower

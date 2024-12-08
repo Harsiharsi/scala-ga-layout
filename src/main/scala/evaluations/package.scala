@@ -17,41 +17,42 @@ package object types {
   case object RightHand extends Hand
 
 
-  sealed trait Joinable
+  sealed trait Chunkablity
+  sealed trait Chunkable extends Chunkablity
+  sealed trait EasilyChunkable extends Chunkable
+  sealed trait HardChunkable extends Chunkable
+  sealed trait NonChunkable extends Chunkablity { val distance: Int }
+
   sealed trait StrokeProperty
-  case object EasilyJoinable extends StrokeProperty with Joinable
-  case object HardJoinable extends StrokeProperty with Joinable
-  case object NonJoinable extends StrokeProperty
+
+  sealed trait BasicStrokeProperty extends StrokeProperty
+  case object BasicStrokeEasilyChunkable extends BasicStrokeProperty with EasilyChunkable
+  case class BasicStrokeSameFinger(val distance: Int) extends BasicStrokeProperty with NonChunkable
+  case class BasicStrokeDifferentFinger(val distance: Int) extends BasicStrokeProperty with NonChunkable
+
+  sealed trait HandShapeProperty extends StrokeProperty
+  case object HandShapeEasilyChunkable extends HandShapeProperty with EasilyChunkable
+  case object HandShapeHardChunkable extends HandShapeProperty with HardChunkable
+
+  sealed trait FingerOrderProperty extends StrokeProperty
+  case object FingerOrderEasilyChunkable extends FingerOrderProperty with EasilyChunkable
+  case object FingerOrderHardChunkable extends FingerOrderProperty with HardChunkable
 
   sealed trait TotalStrokeProperty
-  case object EasyStroke extends TotalStrokeProperty with Joinable
-  case object HardStroke extends TotalStrokeProperty with Joinable
-  case object HardFingerOrderStroke extends TotalStrokeProperty with Joinable
-  case object NonJoinableStroke extends TotalStrokeProperty
+  case object ArpeggioStroke extends TotalStrokeProperty with EasilyChunkable
+  case object HardArpeggioStroke extends TotalStrokeProperty with HardChunkable
+  case object HardHandShapeStroke extends TotalStrokeProperty with HardChunkable
+  case object HardFingerOrderStroke extends TotalStrokeProperty with HardChunkable
+  case class NonChunkableSameFingerStroke(val distance: Int) extends TotalStrokeProperty with NonChunkable
+  case class NonChunkableDifferentFingerStroke(val distance: Int) extends TotalStrokeProperty with NonChunkable
+  case object SubArpeggioStroke extends TotalStrokeProperty with NonChunkable { val distance = 0 }
 
-  sealed trait HandBsBetweenHandAs
-  case object AA extends HandBsBetweenHandAs
-  case object ABA extends HandBsBetweenHandAs
-  case object ABBA extends HandBsBetweenHandAs
-  case object ABBBA extends HandBsBetweenHandAs
-  sealed trait InterStrokeProperty {
-    val betweens: HandBsBetweenHandAs
-  }
-  case class InterJoinable(
-    val strokeProperty: TotalStrokeProperty with Joinable,
-    val betweens: HandBsBetweenHandAs
-  ) extends InterStrokeProperty
-  case class InterNonJoinable(
-    val strokeProperty: TotalStrokeProperty with Joinable,
-    val betweens: HandBsBetweenHandAs
-  ) extends InterStrokeProperty
-  case class InterJustNonJoinable(
-    val betweens: HandBsBetweenHandAs
-  ) extends InterStrokeProperty
 
   sealed trait Finger extends Ordered[Finger] {
     def compare(y: Finger): Int = (this, y) match {
       case (x, y) if (x eq y) => 0
+      case (Thumb, _) => -1
+      case (_, Thumb) => 1
       case (StretchedIndex, _) => -1
       case (_, StretchedIndex) => 1
       case (Index, _) => -1
@@ -94,14 +95,30 @@ package object types {
   type BothHandActionable = Actionable
   type OneHandActionable = OneHand with Actionable
 
-  case class Chunk(val keys: String) extends OneHand with Actionable {
+  case class OneHandKeyString(val keys: String) extends OneHand
+
+  case class BasicStroke(val keys: String) extends OneHand
+
+  sealed trait ChunkTrait extends OneHand with Actionable {
     def toHandAction: HandAction = HandAction(keys)
     def toOneHandAction: OneHandAction = OneHandAction(keys)
   }
+  case class Chunk(val keys: String) extends ChunkTrait
+  sealed trait HandSpecifiedChunk extends ChunkTrait { def clear: HandSpecifiedChunk }
+  case class LeftChunk(val keys: String) extends HandSpecifiedChunk { def clear = LeftChunk("") }
+  case class RightChunk(val keys: String) extends HandSpecifiedChunk { def clear = RightChunk("") }
+
   case class HandAction(val keys: String) extends Actionable with MultiChunk {
+    def join(keys: String): HandAction = HandAction(this.keys + keys)
+    def join(keyString: KeyString): HandAction = HandAction(this.keys + keyString.keys)
     def toOneHand: OneHandAction = OneHandAction(keys)
   }
-  case class OneHandAction(val keys: String) extends OneHand with Actionable with MultiChunk
+  case class OneHandAction(val keys: String) extends OneHand with Actionable with MultiChunk {
+    def join(keys: String): OneHandAction = OneHandAction(this.keys + keys)
+    def join(keyString: KeyString): OneHandAction = OneHandAction(this.keys + keyString.keys)
+  }
+
+  type Interchunk = (OneHandAction, HandSpecifiedChunk, HandSpecifiedChunk)
 
 
   val keyToFingerAndHand: Map[Char, (Hand, Finger)] = Map(
@@ -159,12 +176,18 @@ package object values {
   import layout.evaluations.types._
   import layout.evaluations.fileLoader._
 
-  val allFingerOrders: Map[FingerOrder, StrokeProperty] = loadFingerOrders()
-  val allHandShapes: Map [HandShape, StrokeProperty] = loadHandShapes()
+  val allFingerOrders: Map[FingerOrder, FingerOrderProperty] = loadFingerOrders()
+  val allHandShapes: Map [HandShape, HandShapeProperty] = loadHandShapes()
 
-  val allStrokePatterns: Map[String, (StrokeProperty, Hand)] = loadTwoStrokePatterns
-  val allChunks: Map[String, (StrokeProperty, Hand)] = allStrokePatterns.filter(t => t._2._1 != NonJoinable)
-  val allNonChunks: Map[String, (StrokeProperty, Hand)] = allStrokePatterns.filter(t => t._2._1 == NonJoinable)
+  val allStrokePatterns: Map[String, (BasicStrokeProperty, Hand)] = loadTwoStrokePatterns
+  val allChunks: Map[String, (BasicStrokeProperty, Hand)] = allStrokePatterns.filter(t => t._2._1 match {
+    case _: Chunkable => true
+    case _ => false
+  })
+  val allNonChunks: Map[String, (BasicStrokeProperty, Hand)] = allStrokePatterns.filter(t => t._2._1 match {
+    case _: NonChunkable => true
+    case _ => false
+  })
 }
 
 package object fileLoader {
@@ -185,12 +208,7 @@ package object fileLoader {
     case "SP" => StretchedPinky
   }
 
-  def stringToChunkDifficulty(s: String): StrokeProperty = s match {
-    case "EasilyJoinable" => EasilyJoinable
-    case "HardJoinable" => HardJoinable
-    case "NonJoinable" => NonJoinable
-  }
-  def loadHandShapes(): Map[HandShape, StrokeProperty] = {
+  def loadHandShapes(): Map[HandShape, HandShapeProperty] = {
     val file = S.fromFile("./src/main/resources/typingdatas/hand_shapes.txt", "utf-8")
     val m = (for (l <- file.getLines if l.nonEmpty && l(0) != '#') yield {
       val splits = l.split('\t')
@@ -204,15 +222,18 @@ package object fileLoader {
         }
         (finger, relativeFingerHeight)
       } .toList
-      val chunkDifficulty = stringToChunkDifficulty(column2)
-      handShape -> chunkDifficulty
+      val chunkability = column2 match {
+        case "HandShapeEasilyChunkable" => HandShapeEasilyChunkable
+        case "HandShapeHardChunkable" => HandShapeHardChunkable
+      }
+      handShape -> chunkability
     }).toMap
     file.close
 
     m.toMap
   }
 
-  def loadFingerOrders(): Map[FingerOrder, StrokeProperty] = {
+  def loadFingerOrders(): Map[FingerOrder, FingerOrderProperty] = {
     val file = S.fromFile("./src/main/resources/typingdatas/finger_orders.txt", "utf-8")
     val m = (for (l <- file.getLines if l.nonEmpty && l(0) != '#') yield {
       val splits = l.split('\t')
@@ -222,26 +243,31 @@ package object fileLoader {
         val nextFinger = stringToFinger(column2)
         strokedFingers -> nextFinger
       }
-      val chunkDifficulty = stringToChunkDifficulty(column3)
-      fingerOrder -> chunkDifficulty
+      val chunkability = column3 match {
+        case "FingerOrderEasilyChunkable" => FingerOrderEasilyChunkable
+        case "FingerOrderHardChunkable" => FingerOrderHardChunkable
+      }
+      fingerOrder -> chunkability
     }).toMap
     file.close
 
-    m ++ List(
-      Thumb, StretchedIndex, Index, Middle,
-      Ring, StretchedRing,
-      Pinky, StretchedPinky).map(finger => (Set[Finger](), finger) -> EasilyJoinable).toMap
+    m
   }
 
-  def loadTwoStrokePatterns(): Map[String, (StrokeProperty, Hand)] = {
+  def loadTwoStrokePatterns(): Map[String, (BasicStrokeProperty, Hand)] = {
     val file = S.fromFile("src/main/resources/typingdatas/stroke_patterns.txt", "utf-8")
     val m = (for (l <- file.getLines if l.nonEmpty && l(0) != '#') yield {
       val splits = l.split('\t')
-      val (column1, column2) = (splits(0), splits(1))
+      val (column1, column2, column3) = (splits(0), splits(1), splits(2))
       val strokePattern = column1
-      val chunkDifficulty = stringToChunkDifficulty(column2)
+      val distance = column3.toInt
+      val chunkability = column2 match {
+        case "BasicStrokeEasilyChunkable" => BasicStrokeEasilyChunkable
+        case "BasicStrokeSameFinger" => BasicStrokeSameFinger(distance)
+        case "BasicStrokeDifferentFinger" => BasicStrokeDifferentFinger(distance)
+      }
       val hand = keyToHand(strokePattern.head)
-      strokePattern -> (chunkDifficulty, hand)
+      strokePattern -> (chunkability, hand)
     }).toMap
     file.close
 

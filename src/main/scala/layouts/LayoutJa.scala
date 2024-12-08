@@ -7,29 +7,31 @@ import scala.annotation.tailrec
 import layout.TypeAlias._
 
 
-class LayoutJa(val chromosome: Chromosome, val fitness: Option[Double]) extends Layout {
+case class LayoutJa(val chromosome: Chromosome) extends Layout {
   import layout.layouts.LayoutJa._
 
+  private var optionalFitness: Option[Double] = None
+
+  def fitness: Double = optionalFitness match {
+    case Some(n) => n
+    case None =>
+      evaluate
+      optionalFitness.get
+  }
+
+  def isEvaluated: Boolean = optionalFitness.isDefined
+
   def mutate(): Layout = {
-    val mutationNumber = R.nextDouble match {
-      case n if n < 0.5 => 1
-      case n if n < 0.6 => 2
-      case n if n < 0.7 => 3
-      case n if n < 0.8 => 4
-      case n if n < 0.9 => 5
-      case _ => R.shuffle(6 to frontKeys.length / 2).head
-    }
-    val newChromosome = shuffleChromosome(chromosome, mutationNumber)
-
-    new LayoutJa(newChromosome, None)
+    new LayoutJa(shuffleChromosome(chromosome, 1))
   }
 
-  def evaluate(): Layout = {
-    new LayoutJa(chromosome, Option(evaluateFitness(chromosome)))
+  def evaluate: Layout = {
+    optionalFitness = Option(evaluateFitness(keyCharToCharKey(chromosome)))
+    this
   }
 
-  override def toString(): String = {
-    chromosomeToString(chromosome) ++ fitness.getOrElse(None).toString
+  override def toString: String = {
+    chromosomeToString(chromosome) ++ optionalFitness.getOrElse(None).toString
   }
 }
 
@@ -83,11 +85,11 @@ object LayoutJa extends LayoutTools {
 
 
   def apply(): Layout = {
-    new LayoutJa(makeChromosome, None)
+    new LayoutJa(makeChromosome)
   }
 
   def apply(chromosome: Chromosome): Layout = {
-    new LayoutJa(chromosome, None)
+    new LayoutJa(chromosome)
   }
 
   def chromosomeToTupleMode(chromosome: Chromosome): ChromosomeTuple = {
@@ -132,37 +134,38 @@ object LayoutJa extends LayoutTools {
   }
 
   @tailrec
-  def shuffleChromosome(chromosome: Chromosome, limit: Int): Chromosome = {
-    val k = R.shuffle(allKeys).head
+  def shuffleChromosome(chromosome: Chromosome, limit: Int, nextKey: PhysicalKey = "", lastKey: PhysicalKey = ""): Chromosome = {
+    val k = if (nextKey == "") R.shuffle(allKeys).head else nextKey
     val geneChar = chromosome(k)
     val specials = specialCharacters ++ shiftedSpecialCharacters
-    val newChromosome: Chromosome = if (specials.contains(geneChar)) {
+    val (newChromosome, chosenKey): (Chromosome, PhysicalKey) = if (specials.contains(geneChar)) {
       val tupleMode = chromosomeToTupleMode(chromosome)
       val frontKey = toFrontKey(k)
       val gene: (AssignableChar, AssignableChar) = tupleMode(frontKey)
       val char = gene._1
-      val chosenKey: PhysicalKey = toFrontKey(R.shuffle(frontKeys.filter(x => x != frontKey)).head)
+      val chosenKey: PhysicalKey = toFrontKey(R.shuffle(frontKeys.filter(x => x != frontKey && x != lastKey)).head)
       val chosenGene: (AssignableChar, AssignableChar) = tupleMode(chosenKey)
       val newTuples = tupleMode ++ Map(frontKey -> chosenGene, chosenKey -> gene)
 
-      chromosomeToLineMode(newTuples)
+      chromosomeToLineMode(newTuples) -> chosenKey
     } else {
       val chosenKey: PhysicalKey = {
         val filtered = allKeys.filter(x =>
             x != toFrontKey(k) &&
             x != toBackKey(k) &&
             !specials.contains(chromosome(x)) &&
-            geneChar != chromosome(x))
+            geneChar != chromosome(x) &&
+            x != lastKey)
 
         R.shuffle(filtered).head
       }
       val chosenGene: AssignableChar = chromosome(chosenKey)
 
-      chromosome ++ Map(k -> chosenGene, chosenKey -> geneChar)
+      (chromosome ++ Map(k -> chosenGene, chosenKey -> geneChar)) -> chosenKey
     }
 
     if (limit > 1) {
-      shuffleChromosome(newChromosome, limit - 1)
+      shuffleChromosome(newChromosome, limit - 1, chosenKey, k)
     } else {
       optimize(newChromosome)
     }
@@ -220,8 +223,7 @@ object LayoutJa extends LayoutTools {
 
     val putSpecialCharacters: Chromosome = {
       val keys = frontKeys.filter(x =>
-          frontKeys.contains(x) &&
-          (specialCharacters.contains(chr1(x)) || specialCharacters.contains(chr2(x))))
+          specialCharacters.contains(chr1(x)) || specialCharacters.contains(chr2(x)))
       val child = crossoverChromosomes(chr1, chr2, keys, specialCharacters)
       val shifted = for (k <- child.keys) yield {
         toBackKey(k) -> specialCharactersToShifted(child(k))
@@ -236,7 +238,7 @@ object LayoutJa extends LayoutTools {
     }
     val newChromosome = optimize(putSpecialCharacters ++ putNormalCharacters)
 
-    new LayoutJa(newChromosome, None)
+    new LayoutJa(newChromosome)
   }
 
   def crossoverChromosomes(
@@ -264,28 +266,22 @@ object LayoutJa extends LayoutTools {
   }
 
   def optimize(chromosome: Chromosome): Chromosome = {
-    val frequnetCharsToFront: Chromosome = {
+    def frequnetCharsToFront(chromosome: Chromosome) = {
       val chr: ChromosomeTuple = chromosomeToTupleMode(chromosome)
       val swapped: ChromosomeTuple = 
         for ((k, (c1, c2)) <- chr) yield {
-          if (
-            specialCharacters.contains(c1) ||
-            monograms.get(c1).getOrElse(0) >= monograms.get(c2).getOrElse(0)
-          ) {
+          if (specialCharacters.contains(c1) || monograms.get(c1).getOrElse(0) >= monograms.get(c2).getOrElse(0)) {
             k -> (c1, c2)
           } else {
             k -> (c2, c1)
           }
         }
-
       chromosomeToLineMode(swapped)
     }
-
-    val filled = {
-      val genesHaveNoFrontChars: Chromosome =
-        frequnetCharsToFront.filter(t => frontKeys.contains(t._1) && t._2 == "")
+    def fillingEmptyFrontKeys(chromosome: Chromosome) = {
+      val genesHaveNoFrontChars: Chromosome = chromosome.filter(t => frontKeys.contains(t._1) && t._2 == "")
       val genesHaveBackChars: Chromosome = R.shuffle(
-        frequnetCharsToFront.filter(t =>
+        chromosome.filter(t =>
             backKeys.contains(t._1) &&
             t._2 != "" &&
             !shiftedSpecialCharacters.contains(t._2))).toMap
@@ -293,61 +289,75 @@ object LayoutJa extends LayoutTools {
         (for (((a, b), (c, d)) <- genesHaveNoFrontChars.zip(genesHaveBackChars)) yield {
           ((a -> d), (c -> b))
         }).unzip
-
-      frequnetCharsToFront ++ givenFrontChars.toMap ++ gaveBackChars.toMap
+      chromosome ++ givenFrontChars.toMap ++ gaveBackChars.toMap
+    }
+    def moveShiftKeyFromPinkyToOtherFinger(chromosome: Chromosome) = {
+      val tupleMode = chromosomeToTupleMode(chromosome)
+      val kv1 = tupleMode.collect {
+        case x@("a", (" S", " S")) => x
+        case x@("z", (" S", " S")) => x
+        case x@(";", (" S", " S")) => x
+        case x@("/", (" S", " S")) => x
+      } .headOption
+      val kv2 = R.shuffle(tupleMode.filter {
+        case ("a", _) => false
+        case ("z", _) => false
+        case (";", _) => false
+        case ("/", _) => false
+        case (_, ("゛", "゛")) => false
+        case (_, (" S", " S")) => false
+        case _ => true
+      } .toList).headOption
+      kv1 -> kv2 match {
+        case (Some((k1, v1)), Some((k2, v2))) => chromosomeToLineMode(tupleMode ++ Map(k1 -> v2, k2 -> v1))
+        case _ => chromosome
+      }
+    }
+    def moveDakutenKeyFromPinkyToOtherFinger(chromosome: Chromosome) = {
+      val tupleMode = chromosomeToTupleMode(chromosome)
+      val kv1 = tupleMode.collect {
+        case x@("a", ("゛", "゛")) => x
+        case x@("z", ("゛", "゛")) => x
+        case x@(";", ("゛", "゛")) => x
+        case x@("/", ("゛", "゛")) => x
+      } .headOption
+      val kv2 = R.shuffle(tupleMode.filter {
+        case ("a", _) => false
+        case ("z", _) => false
+        case (";", _) => false
+        case ("/", _) => false
+        case (_, ("゛", "゛")) => false
+        case (_, (" S", " S")) => false
+        case _ => true
+      } .toList).headOption
+      kv1 -> kv2 match {
+        case (Some((k1, v1)), Some((k2, v2))) => chromosomeToLineMode(tupleMode ++ Map(k1 -> v2, k2 -> v1))
+        case _ => chromosome
+      }
     }
 
-    val backCharsMovedToArpeggioPlacesForShiftKey = {
-      val shiftKey = frontKeys.filter(filled(_) == shift.head).head
-      val nonArpeggioKeys = frontKeys.
-      filter(x => nonChunkPatterns.get(x ++ shiftKey).isDefined).
-      map(toBackKey(_))
-      val arpeggioKeys = backKeys.filter(x => !nonArpeggioKeys.contains(x) && filled(x) == "")
-      val nonArpeggioBackChars = nonArpeggioKeys.
-      filter(x =>
-          filled(x) != "" &&
-          !shiftedSpecialCharacters.contains(filled(x))).
-      map(x => x -> filled(x))
-      val replaced = (for (((_, char), ak) <- nonArpeggioBackChars.zip(R.shuffle(arpeggioKeys))) yield {
-        ak -> char
-      }).toMap
-
-      filled ++ nonArpeggioBackChars.map(x => x._1 -> "") ++ replaced
-    }
-
-    val backCharsMovedToArpeggioPlacesForDakutenKey = {
-      val chars = backCharsMovedToArpeggioPlacesForShiftKey
-      val dakutenKey = frontKeys.filter(chars(_) == dakuten.head).head
-      val nonArpeggioKeys = frontKeys.
-      filter(x => nonChunkPatterns.get(x ++ dakutenKey).isDefined)
-      val simpleChars = (voice ++ specialMoras ++ ten ++ maru)
-      val arpeggioKeys = frontKeys.filter(x => !nonArpeggioKeys.contains(x) && simpleChars.contains(chars(x))).map(x => x -> chars(x))
-      val nonArpeggioBackChars = nonArpeggioKeys.
-      filter(x =>
-          !simpleChars.contains(chars(x)) &&
-          !specialCharacters.contains(chars(x))).
-      map(x => x -> chars(x))
-      val replaced = (for (((k1, c1), (k2, c2)) <- nonArpeggioBackChars.zip(R.shuffle(arpeggioKeys))) yield {
-        List(k1 -> c2, k2 -> c1)
-      }).flatten.toMap
-
-      chars ++ replaced
-    }
-
-    filled
+    val frequnetCharsInFront = frequnetCharsToFront(chromosome)
+    val filled = fillingEmptyFrontKeys(frequnetCharsInFront)
+    moveDakutenKeyFromPinkyToOtherFinger(moveShiftKeyFromPinkyToOtherFinger(filled))
   }
 
-  def evaluateFitness(chromosome: Chromosome): Double = {
-    val charToKey = keyCharToCharKey(chromosome)
+  def evaluateFitness(charToKey: Map[AssignableChar, PhysicalKey]): Double = {
+    var fitness = 0.0
+    ngrams.foreach { case (ngram, frequency) =>
+      val (keyStrokes, _) = assignableCharsToPhysicalKeys(ngram, charToKey)
+      fitness += E.evaluate(keyStrokes) * frequency
+    }
+    fitness
+  }
 
-    (for (ng <- ngrams.keys.toList) yield {
-      val typingString = (for (c <- ng) yield {
-        charToKey.get(c.toString).getOrElse("")
-      }).mkString
-      val frequency = ngrams(ng)
-
-      E.evaluate(typingString) * frequency
-    }).sum
+  def assignableCharsToPhysicalKeys(chars: String, charToKey: Map[AssignableChar, PhysicalKey]): (String, String) = {
+    var keyStrokes = ""
+    var inputChars = ""
+    for (assignableChar <- chars if charToKey.get(assignableChar.toString).isDefined) {
+      keyStrokes += charToKey(assignableChar.toString)
+      inputChars += assignableChar
+    }
+    keyStrokes -> inputChars
   }
 
   def getNgrams(): Map[AssignableChar, Int] = {

@@ -5,98 +5,113 @@ import scala.util.{Random => R}
 import layout.layouts.Layout
 import layout.layouts.{LayoutJa => L}
 
+import layout.evaluations.Evaluator
+
 
 object Genetic {
+
   def main(args: Array[String]): Unit = {
-    val populationSize = 300
-    val generationLimit = 300
+    val POPULATION_SIZE = 300
+    val GENERATION_LIMIT = 300
 
-    var populations: List[Layout] = (for (i <- 1 to populationSize) yield {
-      print(s"\r$i")
+    val targetFitness: Double = {
+      import layout.analyzing.LayoutCharToKeyMaps.compositionNo2
+      L.evaluateFitness(compositionNo2)
+    }
 
-      L().evaluate
-    }).toList
-    println("\r")
+    var populations: List[Layout] = initialization(POPULATION_SIZE)
 
-    var bestLayout: Layout = populations.minBy(_.fitness.getOrElse(0.0))
-    var notUpdated: Int = 0
-    println(bestLayout)
-    for (g <- 1 to generationLimit) {
+    var bestLayout: Layout = populations.minBy(_.fitness)
+    println("best in the initial populations")
+    println(addIndent(bestLayout.toString))
+    println(addIndent(s"$targetFitness  target fitness"))
+
+    var nonUpdateCounter: Int = 0
+    for (g <- 1 to GENERATION_LIMIT) {
       println()
+      if (g % 3 == 0) Evaluator.clearCaches()
 
-      val offspring = R.shuffle(select(populations))
-
-      val crossovered: List[Layout] = {
-        val (before, after) = offspring.splitAt(offspring.length / 2)
-
-        (for ((ind1, ind2) <- before.zip(after)) yield R.nextBoolean match {
-          case true =>
-            val born1 = L.crossover(ind1, ind2)
-            val born2 = L.crossover(ind1, ind2)
-
-            List(born1, born2)
-          case _ => List(ind1, ind2)
-        }).flatten
+      val survivors = {
+        val offspring = selection(populations)
+        val crossovered = crossover(offspring)
+        val mutants = mutation(crossovered)
+        evaluation(mutants)
       }
 
-      val mutants: List[Layout] = {
-        val uniques = crossovered.distinct
-        val redundancies = crossovered.diff(uniques)
-
-        (uniques ++ redundancies.map(_.mutate)).take(populationSize)
-      }
-
-      val evaluated = for ((ind, i) <- mutants.zip(1 to mutants.length)) yield {
-        print(s"\r$i")
-
-        ind.fitness match {
-          case None => ind.evaluate
-          case _ => ind
-        }
-      }
-      println("\r")
-
-      val bestInTheGeneration = evaluated.minBy(_.fitness.getOrElse(0.0))
-
-      if (
-        bestInTheGeneration.fitness.getOrElse(0.0) <
-        bestLayout.fitness.getOrElse(0.0)
-      ){
-        notUpdated = 0
+      val bestInTheGeneration = survivors.minBy(_.fitness)
+      if (bestInTheGeneration.fitness < bestLayout.fitness) {
         val formerBest = bestLayout
         bestLayout = bestInTheGeneration
 
-        println(s"--------------------- updated $g ---------------------")
-        println(formerBest)
-        println()
-        println(bestLayout)
-      } else {
-        notUpdated += 1
+        nonUpdateCounter = 0
 
-        println(s"not updated $g $notUpdated")
+        println(s"--------------------- generation $g updated ---------------------")
+        println("former best")
+        println(addIndent(formerBest.toString))
+        println("new best")
+        println(addIndent(bestLayout.toString))
+        val reachedOrNot = if (bestLayout.fitness < targetFitness) " *reached*" else ""
+        println(addIndent(s"$targetFitness  target fitness$reachedOrNot"))
+      } else {
+        nonUpdateCounter += 1
+
+        println(s"generation $g not updated $nonUpdateCounter")
+        println("best in the generation")
+        println(addIndent(bestInTheGeneration.toString))
       }
 
-      populations = if (notUpdated <= 10) {
-        evaluated
-      } else {
-        for (ind <- evaluated) yield ind == bestLayout match {
-          case true => ind.mutate.evaluate
-          case _ => ind
-        }
-      }
+      populations = survivors
     }
 
+    println()
+    println("result")
     println(bestLayout)
   }
 
   def select(pops: List[Layout]): List[Layout] = {
-    val len = pops.length
     val aspirantSize = 3
-
-    (for (_ <- 1 to len) yield {
+    val len = pops.length
+    (1 to len).toList.map { _ =>
       val aspirants = for (_ <- 1 to aspirantSize) yield pops(R.nextInt(len))
-
-      aspirants.minBy(_.fitness.getOrElse(0.0))
-    }).toList
+      aspirants.minBy(_.fitness)
+    }
   }
+
+  def initialization(populationSize: Int): List[Layout] = {
+    var populations: List[Layout] = (1 to populationSize).toList.map { i =>
+      print(s"\r$i")
+      L().evaluate
+    }
+    print("\r")
+    populations
+  }
+
+  def selection(pops: List[Layout]): List[Layout] = R.shuffle(select(pops))
+
+  def crossover(pops: List[Layout]): List[Layout] = {
+    val (before, after) = pops.splitAt(pops.length / 2)
+    before.zip(after).map { case (ind1, ind2) =>
+      if (R.nextBoolean)
+        List(L.crossover(ind1, ind2), L.crossover(ind1, ind2))
+      else
+        List(ind1, ind2)
+    } .flatten
+  }
+
+  def mutation(pops: List[Layout]): List[Layout] = {
+    val uniques = pops.distinct
+    val redundancies = pops.diff(uniques)
+    uniques.map(ind => if (R.nextDouble < 0.05) ind.mutate else ind) ++ redundancies.map(_.mutate)
+  }
+
+  def evaluation(pops: List[Layout]): List[Layout] = {
+    val evaluated = pops.zip(1 to pops.length).map { case (ind, i) =>
+      print(s"\r$i")
+      if (ind.isEvaluated) ind else ind.evaluate
+    }
+    print("\r")
+    evaluated
+  }
+
+  def addIndent(s: String, indent: String = "  ") = s.split("\n").map(indent + _).mkString("\n")
 }

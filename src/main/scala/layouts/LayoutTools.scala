@@ -7,17 +7,6 @@ import layout.TypeAlias._
 import layout.evaluations.Evaluator
 
 
-trait LayoutToolsEn extends
-LayoutTools with
-LeftKeysAndRightKeysEn with
-CharsEn with
-MakeChromosome with
-EvaluateFitness with 
-KeyCharToCharKey with
-CrossoverChromosomes
-{}
-
-
 trait LayoutTools {
   val leftKeys: List[PhysicalKey]
   val rightKeys: List[PhysicalKey]
@@ -28,7 +17,7 @@ trait LayoutTools {
   def apply(chromosome: Chromosome): Layout
   def makeChromosome(): Chromosome
   def evaluateFitness(chromosome: Chromosome): Double
-  def keyCharToCharKey(chromosome: Chromosome): Map[AssignableChar, PhysicalKey]
+  // def keyCharToCharKey(chromosome: Chromosome): Map[AssignableChar, PhysicalKey]
   def crossover(p1: Layout, p2: Layout): Layout
   def chromosomeToString(chromosome: Chromosome): String
   def getNgrams(): Map[AssignableChar, Int]
@@ -58,20 +47,20 @@ trait MakeChromosome {
   }
 }
 
-trait EvaluateFitness extends LayoutTools {
-  def evaluateFitness(chromosome: Chromosome): Double = {
-    val charToKey = keyCharToCharKey(chromosome)
-
-    (for (ng <- ngrams.keys.toList) yield {
-      val typingString = (for (c <- ng) yield {
-        charToKey.get(c.toString).getOrElse("")
-      }).mkString
-      val frequency = ngrams(ng)
-
-      Evaluator.evaluate(typingString) * frequency
-    }).sum
-  }
-}
+// trait EvaluateFitness extends LayoutTools {
+//   def evaluateFitness(chromosome: Chromosome): Double = {
+//     val charToKey = keyCharToCharKey(chromosome)
+// 
+//     (for (ng <- ngrams.keys.toList) yield {
+//       val typingString = (for (c <- ng) yield {
+//         charToKey.get(c.toString).getOrElse("")
+//       }).mkString
+//       val frequency = ngrams(ng)
+// 
+//       Evaluator.evaluate(typingString) * frequency
+//     }).sum
+//   }
+// }
 
 trait KeyCharToCharKey {
   val keys: List[PhysicalKey]
