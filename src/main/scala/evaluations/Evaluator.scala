@@ -78,14 +78,14 @@ object Evaluator {
               (currentActionKeyString.join(x), otherActionKeyString, x::currentActionChunks, listOfActionChunks, 0.0)
             case _ => (x.toOneHandAction, OneHandAction(""), x::Nil, currentActionChunks::listOfActionChunks, 1.0)
           }
-
-        val nearArpeggioPenalty = totalStrokeProperty  match {
+        val nearArpeggioBonus = totalStrokeProperty match {
           case ArpeggioStroke => 0.0
-          case SubArpeggioStroke => 0.0
-          case _: HardChunkable => 0.001
-          case _: NonChunkable => 0.001
+          case SubArpeggioStroke => -0.015
+          case _: HardChunkable => -0.01
+          case NonChunkableDifferentFingerStroke(0) => -0.01
+          case _: NonChunkable => 0.0
         }
-        val newScore = score + penalty + nearArpeggioPenalty
+        val newScore = score + penalty + nearArpeggioBonus
 
         val (newLeftActionKeyString, newRightActionKeyString) = reverseHands(newCurrentActionKeyString, newOtherActionKeyString, x)
         rec(xs, newLeftActionKeyString, newRightActionKeyString, newCurrentActionChunks, newListOfActionChunks, newScore)
