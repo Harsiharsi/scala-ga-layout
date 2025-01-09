@@ -3,8 +3,8 @@ package layout.analyzing
 import scala.io.{Source => S}
 import java.io.PrintWriter
 
-import layout.TypeAlias._
-import layout.layouts.{LayoutJa => LT}
+import layout.layouts.functions.assignableCharsToPhysicalKeys
+import layout.layouts.values.fourGrams
 import layout.evaluations.{Evaluator => E}
 import layout.evaluations.types._
 import layout.analyzing.LayoutCharToKeyMaps._
@@ -39,7 +39,7 @@ object LayoutAnalyzer {
       case Nil => LayoutData(fitness, chunkFreqs, actionFreqs, totalChunkFreqs, totalActionFreqs,
                              keysInChunkFreqs, keysInActionFreqs, listOfNgramAndAction)
       case (ngram, frequency)::xs =>
-        val (keyStrokes, inputChars) = LT.assignableCharsToPhysicalKeys(ngram, charToKey)
+        val (keyStrokes, inputChars) = assignableCharsToPhysicalKeys(ngram, charToKey)
 
         val chunks = E.partitionedKeysToChunks(E.partitionKeysByHand(keyStrokes))
         val (actions, score) = E.chunksToListOfActionChunks(chunks, true)
@@ -66,21 +66,22 @@ object LayoutAnalyzer {
             newTotalChunkFreqs, newTotalActionFreqs, newKeysInChunkFreqs,
             newKeysInActionFreqs, newListOfNgramAndAction)
     }
-    rec(charToKey, LT.ngrams.toList, 0.0, Map(), Map(), 0, 0, Map(), Map(), Nil)
+    rec(charToKey, fourGrams.toList, 0.0, Map(), Map(), 0, 0, Map(), Map(), Nil)
   }
 
   def writeAllLayouts(): Unit = {
     List(
-      ("月配列2-263", "tsuki2_263", tsuki2_263),
-      ("月見草配列V2", "tsukimisouV2", tsukimisouV2),
+      ("月配列2-263", "tsuki2-263", tsuki2_263),
+      ("月見草配列V2", "tsukimisouv2", tsukimisouV2),
       ("幸花配列", "yukika", yukika),
       ("中指シフト月光20210622", "gekkou20210622", gekkou20210622),
       ("月配列U9", "tsukiU9", tsukiU9),
-      ("ぶな配列2.0", "buna2_0", buna2_0),
-      ("ミズナラ配列1.0", "mizunara1_0", mizunara1_0),
-      ("コンポジション#1", "compositionNo1", compositionNo1),
-      ("コンポジション#2", "compositionNo2", compositionNo2),
-      ("コンポジション#3", "compositionNo3", compositionNo3)
+      ("ぶな配列2.0", "buna2.0", buna2_0),
+      ("ミズナラ配列1.0", "mizunara1.0", mizunara1_0),
+      ("コンポジション#1", "compositionno1", compositionNo1),
+      ("コンポジション#2", "compositionno2", compositionNo2),
+      ("コンポジション#3", "compositionno3", compositionNo3),
+      ("コンポジション#3.1", "compositionno3.1", compositionNo3_1)
     ).foreach { case (layoutName, fileName, charToKey) => writeFiles(layoutName, fileName, getLayoutData(charToKey)) }
   }
 
@@ -97,7 +98,7 @@ object LayoutAnalyzer {
     }
     basicDataFile.println()
     basicDataFile.println("チャンク頻度")
-    layoutData.chunkFreqs.toList.sortBy(_._2).foreach { case (chunk, frequency) =>
+    layoutData.chunkFreqs.toList.sortBy(-_._2).foreach { case (chunk, frequency) =>
       basicDataFile.println(s"$chunk\t$frequency")
     }
     basicDataFile.close()
@@ -113,7 +114,7 @@ object LayoutAnalyzer {
     }
     actionDataFile.println()
     actionDataFile.println("アクション頻度")
-    layoutData.actionFreqs.toList.sortBy(_._2).foreach { case (action, frequency) =>
+    layoutData.actionFreqs.toList.sortBy(-_._2).foreach { case (action, frequency) =>
       val actionString = action.mkString(" ")
       actionDataFile.println(s"$actionString\t$frequency")
     }

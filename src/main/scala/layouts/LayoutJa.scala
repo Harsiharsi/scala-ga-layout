@@ -4,11 +4,14 @@ import scala.util.{Random => R}
 import scala.io.{Source => S}
 import scala.annotation.tailrec
 
-import layout.TypeAlias._
+import layout.layouts.types._
 
 
-case class LayoutJa(val chromosome: Chromosome) extends Layout {
+case class LayoutJa(val chromosome: ChromosomeJa) extends Layout {
+  import layout.layouts.functions._
   import layout.layouts.LayoutJa._
+
+  type T = LayoutJa
 
   private var optionalFitness: Option[Double] = None
 
@@ -21,12 +24,12 @@ case class LayoutJa(val chromosome: Chromosome) extends Layout {
 
   def isEvaluated: Boolean = optionalFitness.isDefined
 
-  def mutate(): Layout = {
-    new LayoutJa(shuffleChromosome(chromosome, 1))
+  def mutate(): LayoutJa = {
+    new LayoutJa(shuffleChromosomeJa(chromosome, 1))
   }
 
-  def evaluate: Layout = {
-    optionalFitness = Option(evaluateFitness(keyCharToCharKey(chromosome)))
+  def evaluate: LayoutJa = {
+    optionalFitness = Option(evaluateFitness(keyCharToCharKey(chromosome), ngrams))
     this
   }
 
@@ -35,10 +38,11 @@ case class LayoutJa(val chromosome: Chromosome) extends Layout {
   }
 }
 
-object LayoutJa extends LayoutTools {
-  import layout.evaluations.{Evaluator => E}
-  import layout.evaluations.types._
+object LayoutJa extends LayoutCompanion {
+  import layout.layouts.values._
   import layout.evaluations.values.allNonChunks
+
+  type T = LayoutJa
 
   val frontKeys: List[PhysicalKey] = "123457890qwertyuiopasdfghjkl;zxcvbnm,./".map(_.toString).toList
   val backKeys: List[PhysicalKey] = "!@#$%&*()QWERTYUIOPASDFGHJKL:ZXCVBNM<>?".map(_.toString).toList
@@ -78,39 +82,37 @@ object LayoutJa extends LayoutTools {
   val allCharacters: List[AssignableChar] = vowelsAndYrow ++ shiftedVowelsAndYrow ++ voiceless ++ voiced ++ pRow ++ voice ++ specialMoras ++ vu ++ ten ++ maru
   val allCharsOnLayout: Set[AssignableChar] = (vowelsAndYrow ++ shiftedSpecialCharacters ++ voiceless ++ voice ++ specialMoras ++ ten ++ maru ++ shift ++ dakuten ++ handakuten ++ List("")).toSet
 
-  val nonChunkPatterns: Map[String, (StrokeProperty, Hand)] = allNonChunks
-
-  val ngrams: Map[AssignableChar, Int] = getNgrams
+  val ngrams: Map[AssignableChar, Int] = fourGrams
   val monograms: Map[AssignableChar, Int] = getMonograms
 
 
-  def apply(): Layout = {
+  def apply(): LayoutJa = {
     new LayoutJa(makeChromosome)
   }
 
-  def apply(chromosome: Chromosome): Layout = {
+  def apply(chromosome: ChromosomeJa): LayoutJa = {
     new LayoutJa(chromosome)
   }
 
-  def chromosomeToTupleMode(chromosome: Chromosome): ChromosomeTuple = {
+  def chromosomeToTupleMode(chromosome: ChromosomeJa): ChromosomeJaTuple = {
     (for (k <- frontKeys) yield {
-      k -> (chromosome(k),chromosome(toBackKey(k)))
+      k -> (chromosome(k), chromosome(toBackKey(k)))
     }).toMap
   }
 
-  def chromosomeToLineMode(chromosome: ChromosomeTuple): Chromosome = {
-    val frontChromosome = for (k <- frontKeys) yield {
+  def chromosomeToLineMode(chromosome: ChromosomeJaTuple): ChromosomeJa = {
+    val frontChromosomeJa = for (k <- frontKeys) yield {
       k -> chromosome(k)._1
     }
-    val backChromosome = for (k <- backKeys) yield {
+    val backChromosomeJa = for (k <- backKeys) yield {
       k -> chromosome(toFrontKey(k))._2
     }
 
-    frontChromosome.toMap ++ backChromosome.toMap
+    frontChromosomeJa.toMap ++ backChromosomeJa.toMap
   }
 
-  def makeChromosome(): Chromosome = {
-    val putSpecialCharacters: ChromosomeTuple = {
+  def makeChromosome(): ChromosomeJa = {
+    val putSpecialCharacters: ChromosomeJaTuple = {
       val nothing = List.fill(allKeys.length)(List("")).flatten
       val zipped = R.shuffle(frontKeys).zip(specialCharacters ++ nothing)
 
@@ -121,24 +123,24 @@ object LayoutJa extends LayoutTools {
         }
       }).toMap
     }
-    val putNormalCharacters: Chromosome = {
-      val lineModeChromosome: Chromosome = chromosomeToLineMode(putSpecialCharacters)
-      val filteredKeys = lineModeChromosome.keys.filter(x => lineModeChromosome(x) == "").toList
+    val putNormalCharacters: ChromosomeJa = {
+      val lineModeChromosomeJa: ChromosomeJa = chromosomeToLineMode(putSpecialCharacters)
+      val filteredKeys = lineModeChromosomeJa.keys.filter(x => lineModeChromosomeJa(x) == "").toList
       val shuffled = (R.shuffle(frontKeys) ++ R.shuffle(backKeys)).filter(x => filteredKeys.contains(x))
       val zipped = shuffled.zip(R.shuffle(normalCharacters))
 
-      lineModeChromosome ++ zipped.toMap
+      lineModeChromosomeJa ++ zipped.toMap
     }
 
-    shuffleChromosome(putNormalCharacters, allKeys.length)
+    shuffleChromosomeJa(putNormalCharacters, allKeys.length)
   }
 
   @tailrec
-  def shuffleChromosome(chromosome: Chromosome, limit: Int, nextKey: PhysicalKey = "", lastKey: PhysicalKey = ""): Chromosome = {
+  def shuffleChromosomeJa(chromosome: ChromosomeJa, limit: Int, nextKey: PhysicalKey = "", lastKey: PhysicalKey = ""): ChromosomeJa = {
     val k = if (nextKey == "") R.shuffle(allKeys).head else nextKey
     val geneChar = chromosome(k)
     val specials = specialCharacters ++ shiftedSpecialCharacters
-    val (newChromosome, chosenKey): (Chromosome, PhysicalKey) = if (specials.contains(geneChar)) {
+    val (newChromosomeJa, chosenKey): (ChromosomeJa, PhysicalKey) = if (specials.contains(geneChar)) {
       val tupleMode = chromosomeToTupleMode(chromosome)
       val frontKey = toFrontKey(k)
       val gene: (AssignableChar, AssignableChar) = tupleMode(frontKey)
@@ -165,13 +167,13 @@ object LayoutJa extends LayoutTools {
     }
 
     if (limit > 1) {
-      shuffleChromosome(newChromosome, limit - 1, chosenKey, k)
+      shuffleChromosomeJa(newChromosomeJa, limit - 1, chosenKey, k)
     } else {
-      optimize(newChromosome)
+      optimize(newChromosomeJa)
     }
   }
 
-  def keyCharToCharKey(chromosome: Chromosome): Map[AssignableChar, PhysicalKey] = {
+  def keyCharToCharKey(chromosome: ChromosomeJa): CharToKeyMap = {
     val dakutenKey: PhysicalKey = chromosome.keys.filter(x =>
         frontKeys.contains(x) &&
         dakuten.contains(chromosome(x))).head
@@ -217,36 +219,36 @@ object LayoutJa extends LayoutTools {
     l.flatten.toMap
   }
 
-  def crossover(p1: Layout, p2: Layout): Layout = {
+  def crossover(p1: LayoutJa, p2: LayoutJa): LayoutJa = {
     val chr1 = p1.chromosome
     val chr2 = p2.chromosome
 
-    val putSpecialCharacters: Chromosome = {
+    val putSpecialCharacters: ChromosomeJa = {
       val keys = frontKeys.filter(x =>
           specialCharacters.contains(chr1(x)) || specialCharacters.contains(chr2(x)))
-      val child = crossoverChromosomes(chr1, chr2, keys, specialCharacters)
+      val child = crossoverChromosomeJas(chr1, chr2, keys, specialCharacters)
       val shifted = for (k <- child.keys) yield {
         toBackKey(k) -> specialCharactersToShifted(child(k))
       }
 
       allKeys.map(_ -> "").toMap ++ child ++ shifted
     }
-    val putNormalCharacters: Chromosome = {
+    val putNormalCharacters: ChromosomeJa = {
       val keys = allKeys.filter(x => putSpecialCharacters(x) == "")
 
-      crossoverChromosomes(chr1, chr2, keys, normalCharacters)
+      crossoverChromosomeJas(chr1, chr2, keys, normalCharacters)
     }
-    val newChromosome = optimize(putSpecialCharacters ++ putNormalCharacters)
+    val newChromosomeJa = optimize(putSpecialCharacters ++ putNormalCharacters)
 
-    new LayoutJa(newChromosome)
+    new LayoutJa(newChromosomeJa)
   }
 
-  def crossoverChromosomes(
-    chr1: Chromosome, chr2: Chromosome,
+  def crossoverChromosomeJas(
+    chr1: ChromosomeJa, chr2: ChromosomeJa,
     keys: List[PhysicalKey], chars: List[AssignableChar]
-  ): Chromosome = {
+  ): ChromosomeJa = {
     @tailrec
-    def f(child: Chromosome, keys: List[PhysicalKey], chars: List[AssignableChar]): Chromosome = {
+    def f(child: ChromosomeJa, keys: List[PhysicalKey], chars: List[AssignableChar]): ChromosomeJa = {
       val k = keys.head
       val candidateChars: List[AssignableChar] = {
         val parentGenes: List[AssignableChar] = List(chr1(k), chr2(k)).distinct.intersect(chars)
@@ -265,10 +267,10 @@ object LayoutJa extends LayoutTools {
     f(Map[PhysicalKey, AssignableChar](), R.shuffle(keys), R.shuffle(chars))
   }
 
-  def optimize(chromosome: Chromosome): Chromosome = {
-    def frequnetCharsToFront(chromosome: Chromosome) = {
-      val chr: ChromosomeTuple = chromosomeToTupleMode(chromosome)
-      val swapped: ChromosomeTuple = 
+  def optimize(chromosome: ChromosomeJa): ChromosomeJa = {
+    def frequnetCharsToFront(chromosome: ChromosomeJa) = {
+      val chr: ChromosomeJaTuple = chromosomeToTupleMode(chromosome)
+      val swapped: ChromosomeJaTuple = 
         for ((k, (c1, c2)) <- chr) yield {
           if (specialCharacters.contains(c1) || monograms.get(c1).getOrElse(0) >= monograms.get(c2).getOrElse(0)) {
             k -> (c1, c2)
@@ -278,9 +280,9 @@ object LayoutJa extends LayoutTools {
         }
       chromosomeToLineMode(swapped)
     }
-    def fillingEmptyFrontKeys(chromosome: Chromosome) = {
-      val genesHaveNoFrontChars: Chromosome = chromosome.filter(t => frontKeys.contains(t._1) && t._2 == "")
-      val genesHaveBackChars: Chromosome = R.shuffle(
+    def fillingEmptyFrontKeys(chromosome: ChromosomeJa) = {
+      val genesHaveNoFrontChars: ChromosomeJa = chromosome.filter(t => frontKeys.contains(t._1) && t._2 == "")
+      val genesHaveBackChars: ChromosomeJa = R.shuffle(
         chromosome.filter(t =>
             backKeys.contains(t._1) &&
             t._2 != "" &&
@@ -291,7 +293,7 @@ object LayoutJa extends LayoutTools {
         }).unzip
       chromosome ++ givenFrontChars.toMap ++ gaveBackChars.toMap
     }
-    def moveShiftKeyFromPinkyToOtherFinger(chromosome: Chromosome) = {
+    def moveShiftKeyFromPinkyToOtherFinger(chromosome: ChromosomeJa) = {
       val tupleMode = chromosomeToTupleMode(chromosome)
       val kv1 = tupleMode.collect {
         case x@("a", (" S", " S")) => x
@@ -313,7 +315,7 @@ object LayoutJa extends LayoutTools {
         case _ => chromosome
       }
     }
-    def moveDakutenKeyFromPinkyToOtherFinger(chromosome: Chromosome) = {
+    def moveDakutenKeyFromPinkyToOtherFinger(chromosome: ChromosomeJa) = {
       val tupleMode = chromosomeToTupleMode(chromosome)
       val kv1 = tupleMode.collect {
         case x@("a", ("゛", "゛")) => x
@@ -339,34 +341,6 @@ object LayoutJa extends LayoutTools {
     val frequnetCharsInFront = frequnetCharsToFront(chromosome)
     val filled = fillingEmptyFrontKeys(frequnetCharsInFront)
     moveDakutenKeyFromPinkyToOtherFinger(moveShiftKeyFromPinkyToOtherFinger(filled))
-  }
-
-  def evaluateFitness(charToKey: Map[AssignableChar, PhysicalKey]): Double = {
-    var fitness = 0.0
-    ngrams.foreach { case (ngram, frequency) =>
-      val (keyStrokes, _) = assignableCharsToPhysicalKeys(ngram, charToKey)
-      fitness += E.evaluate(keyStrokes) * frequency
-    }
-    fitness
-  }
-
-  def assignableCharsToPhysicalKeys(chars: String, charToKey: Map[AssignableChar, PhysicalKey]): (String, String) = {
-    var keyStrokes = ""
-    var inputChars = ""
-    for (assignableChar <- chars if charToKey.get(assignableChar.toString).isDefined) {
-      keyStrokes += charToKey(assignableChar.toString)
-      inputChars += assignableChar
-    }
-    keyStrokes -> inputChars
-  }
-
-  def getNgrams(): Map[AssignableChar, Int] = {
-    val f = S.fromFile("./src/main/resources/corpus/4gram.csv", "utf-8")
-    val lines = (for (l <-f.getLines) yield l.split('\t'))
-    val m = (for (l <- lines) yield (l(0), l(1).toInt)).toMap
-    f.close
-
-    m
   }
 
   def getMonograms(): Map[AssignableChar, Int] = {
@@ -431,7 +405,7 @@ object LayoutJa extends LayoutTools {
     freqs ++ dakutenFreq ++ handakutenFreq ++ shiftFreq + ("" -> 0)
   }
 
-  def chromosomeToString(chromosome: Chromosome): String = {
+  def chromosomeToString(chromosome: ChromosomeJa): String = {
     def f(keys: List[PhysicalKey]): String = {
       (for ((k, i) <- keys.zip(1 to keys.length)) yield {
         val s = if (i % 10 == 0) {

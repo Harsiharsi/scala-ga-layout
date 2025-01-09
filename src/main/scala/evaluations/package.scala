@@ -25,27 +25,46 @@ package object types {
 
   sealed trait StrokeProperty
 
-  sealed trait BasicStrokeProperty extends StrokeProperty
+  sealed trait BasicStrokeProperty extends StrokeProperty with Ordered[BasicStrokeProperty] {
+    def compare(y: BasicStrokeProperty): Int = (this, y) match {
+      case (x, y) if (x eq y) => 0
+      case (BasicStrokeEasilyChunkable, _) => -1
+      case (_, BasicStrokeEasilyChunkable) => 1
+      case (BasicStrokeHardChunkable, _) => -1
+      case (_, BasicStrokeHardChunkable) => 1
+      case (BasicStrokeNonChunkable(n), BasicStrokeNonChunkable(m)) => n compare m
+      case (BasicStrokeNonChunkable(_), _) => -1
+      case (_, BasicStrokeNonChunkable(_)) => 1
+    }
+  }
   case object BasicStrokeEasilyChunkable extends BasicStrokeProperty with EasilyChunkable
-  case class BasicStrokeSameFinger(val distance: Int) extends BasicStrokeProperty with NonChunkable
-  case class BasicStrokeDifferentFinger(val distance: Int) extends BasicStrokeProperty with NonChunkable
+  case object BasicStrokeHardChunkable extends BasicStrokeProperty with HardChunkable
+  case class BasicStrokeNonChunkable(val distance: Int) extends BasicStrokeProperty with NonChunkable
 
   sealed trait HandShapeProperty extends StrokeProperty
   case object HandShapeEasilyChunkable extends HandShapeProperty with EasilyChunkable
   case object HandShapeHardChunkable extends HandShapeProperty with HardChunkable
+  case object HandShapeImpossiblyHardChunkable extends HandShapeProperty with HardChunkable
 
-  sealed trait FingerOrderProperty extends StrokeProperty
+  sealed trait FingerOrderProperty extends StrokeProperty with Ordered[FingerOrderProperty] {
+    def compare(y: FingerOrderProperty): Int = (this, y) match {
+      case (x, y) if (x eq y) => 0
+      case (FingerOrderEasilyChunkable, _) => -1
+      case (_, FingerOrderEasilyChunkable) => 1
+      case (FingerOrderHardChunkable, _) => -1
+      case (_, FingerOrderHardChunkable) => 1
+    }
+  }
   case object FingerOrderEasilyChunkable extends FingerOrderProperty with EasilyChunkable
   case object FingerOrderHardChunkable extends FingerOrderProperty with HardChunkable
 
   sealed trait TotalStrokeProperty
-  case object ArpeggioStroke extends TotalStrokeProperty with EasilyChunkable
-  case object HardArpeggioStroke extends TotalStrokeProperty with HardChunkable
-  case object HardHandShapeStroke extends TotalStrokeProperty with HardChunkable
-  case object HardFingerOrderStroke extends TotalStrokeProperty with HardChunkable
-  case class NonChunkableSameFingerStroke(val distance: Int) extends TotalStrokeProperty with NonChunkable
-  case class NonChunkableDifferentFingerStroke(val distance: Int) extends TotalStrokeProperty with NonChunkable
-  case object SubArpeggioStroke extends TotalStrokeProperty with NonChunkable { val distance = 0 }
+  case class ChunkableStroke(
+    val basicStroke: BasicStrokeProperty with Chunkable,
+    val handShape: HandShapeProperty with Chunkable,
+    val fingerOrder: FingerOrderProperty with Chunkable
+  ) extends TotalStrokeProperty with Chunkable
+  case class NonChunkableStroke(val distance: Int) extends TotalStrokeProperty with NonChunkable
 
 
   sealed trait Finger extends Ordered[Finger] {
@@ -157,7 +176,7 @@ package object types {
     case (x, y) => x -> y
   })
 
-  val keyAxes: Map[Char, (Int, Int)] = Map(
+  val keyCoodinates: Map[Char, (Int, Int)] = Map(
     '1' -> (1, 4), '2' -> (2, 4), '3' -> (3, 4), '4' -> (4, 4), '5' -> (5, 4),
     'q' -> (1, 3), 'w' -> (2, 3), 'e' -> (3, 3), 'r' -> (4, 3), 't' -> (5, 3),
     'a' -> (1, 2), 's' -> (2, 2), 'd' -> (3, 2), 'f' -> (4, 2), 'g' -> (5, 2),
@@ -188,6 +207,8 @@ package object values {
     case _: NonChunkable => true
     case _ => false
   })
+
+  val ARPEGGIO_STROKE = ChunkableStroke(BasicStrokeEasilyChunkable, HandShapeEasilyChunkable, FingerOrderEasilyChunkable)
 }
 
 package object fileLoader {
@@ -225,6 +246,7 @@ package object fileLoader {
       val chunkability = column2 match {
         case "HandShapeEasilyChunkable" => HandShapeEasilyChunkable
         case "HandShapeHardChunkable" => HandShapeHardChunkable
+        case "HandShapeImpossiblyHardChunkable" => HandShapeImpossiblyHardChunkable
       }
       handShape -> chunkability
     }).toMap
@@ -263,8 +285,8 @@ package object fileLoader {
       val distance = column3.toInt
       val chunkability = column2 match {
         case "BasicStrokeEasilyChunkable" => BasicStrokeEasilyChunkable
-        case "BasicStrokeSameFinger" => BasicStrokeSameFinger(distance)
-        case "BasicStrokeDifferentFinger" => BasicStrokeDifferentFinger(distance)
+        case "BasicStrokeHardChunkable" => BasicStrokeHardChunkable
+        case "BasicStrokeNonChunkable" => BasicStrokeNonChunkable(distance)
       }
       val hand = keyToHand(strokePattern.head)
       strokePattern -> (chunkability, hand)

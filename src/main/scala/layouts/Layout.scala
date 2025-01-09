@@ -1,14 +1,21 @@
 package layout.layouts
 
-import layout.TypeAlias._
+import layout.layouts.types._
 
 
 trait Layout {
-  val chromosome: Chromosome
+  type T <: Layout
+
   private var optionalFitness: Option[Double] = None
 
   def fitness: Double
   def isEvaluated: Boolean
-  def mutate(): Layout
-  def evaluate: Layout
+  def mutate(): T
+  def evaluate: T
+}
+
+trait LayoutCompanion {
+  type T <: Layout
+
+  def crossover(p1: T, p2: T): T
 }

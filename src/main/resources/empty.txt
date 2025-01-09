@@ -1,0 +1,5 @@
+Chunkablity
+  Chunkable
+    EasilyChunkable
+    HardChunkable
+  NonChunkable

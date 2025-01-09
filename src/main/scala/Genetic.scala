@@ -2,8 +2,7 @@ package layout
 
 import scala.util.{Random => R}
 
-import layout.layouts.Layout
-import layout.layouts.{LayoutJa => L}
+import layout.layouts.{LayoutPhoneme => Layout}
 
 import layout.evaluations.Evaluator
 
@@ -15,8 +14,10 @@ object Genetic {
     val GENERATION_LIMIT = 300
 
     val targetFitness: Double = {
-      import layout.analyzing.LayoutCharToKeyMaps.compositionNo2
-      L.evaluateFitness(compositionNo2)
+      import layout.layouts.functions.evaluateFitness
+      import layout.layouts.values.fourGrams
+      import layout.analyzing.LayoutCharToKeyMaps.{compositionNo2, compositionNo3}
+      evaluateFitness(compositionNo2, fourGrams)
     }
 
     var populations: List[Layout] = initialization(POPULATION_SIZE)
@@ -80,7 +81,7 @@ object Genetic {
   def initialization(populationSize: Int): List[Layout] = {
     var populations: List[Layout] = (1 to populationSize).toList.map { i =>
       print(s"\r$i")
-      L().evaluate
+      Layout().evaluate
     }
     print("\r")
     populations
@@ -92,7 +93,7 @@ object Genetic {
     val (before, after) = pops.splitAt(pops.length / 2)
     before.zip(after).map { case (ind1, ind2) =>
       if (R.nextBoolean)
-        List(L.crossover(ind1, ind2), L.crossover(ind1, ind2))
+        List(Layout.crossover(ind1, ind2), Layout.crossover(ind1, ind2))
       else
         List(ind1, ind2)
     } .flatten
